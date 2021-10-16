@@ -1,0 +1,15 @@
+.gitignore
+nodejs/
+python/
+perl/
+php/
+ruby/
+rust/
+deno/
+.*
+!.gitignore
+!.bashrc
+!.alias.bash
+/pprof
+/go/
+/local/
