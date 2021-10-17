@@ -8,8 +8,11 @@ limit:           # 5000
 noheaders:       # boolean
 show_footers:    # boolean
 matching_groups: # array
-# - '/icons/.+'
-# - '/history/.+'
+- '/api/chair/[0-9]+'
+- '/api/chair/buy/[0-9]+'
+- '/api/estate/[0-9]+'
+- '/api/estate/req_doc/[0-9]+'
+- '/api/recommended_estate/[0-9]+'
 filters:         # string
 output:		count,2xx,3xx,4xx,5xx,method,uri,min,p50,p99,max,sum          # string(comma separated)
 pos_file:        # string
