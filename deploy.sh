@@ -5,6 +5,10 @@ set -eux
 date -R
 echo "Started deploying."
 
+# git pull
+cd ~
+git pull origin main
+
 # rotate logs
 function rotate_log () {
   if sudo [ -e $1 ]; then
