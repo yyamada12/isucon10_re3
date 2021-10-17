@@ -18,7 +18,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo"
-	"github.com/labstack/echo/middleware"
 	"github.com/labstack/gommon/log"
 )
 
@@ -264,7 +263,7 @@ func main() {
 	e.Logger.SetLevel(log.OFF)
 
 	// Middleware
-	e.Use(middleware.Recover())
+	// e.Use(middleware.Recover())
 
 	// Initialize
 	e.POST("/initialize", initialize)
@@ -387,28 +386,32 @@ func getChairDetail(c echo.Context) error {
 func postChair(c echo.Context) error {
 	header, err := c.FormFile("chairs")
 	if err != nil {
-		c.Logger().Errorf("failed to get form file: %v", err)
+		fmt.Printf("failed to get form file: %v", err)
 		return c.NoContent(http.StatusBadRequest)
 	}
 	f, err := header.Open()
 	if err != nil {
-		c.Logger().Errorf("failed to open form file: %v", err)
+		fmt.Printf("failed to open form file: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer f.Close()
 	records, err := csv.NewReader(f).ReadAll()
 	if err != nil {
-		c.Logger().Errorf("failed to read csv: %v", err)
+		fmt.Printf("failed to read csv: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	tx, err := db.Begin()
 	if err != nil {
-		c.Logger().Errorf("failed to begin tx: %v", err)
+		fmt.Printf("failed to begin tx: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
-	for _, row := range records {
+
+	placeholders := make([]string, len(records))
+	params := make([]interface{}, len(records)*13)
+
+	for i, row := range records {
 		rm := RecordMapper{Record: row}
 		id := rm.NextInt()
 		name := rm.NextString()
@@ -424,17 +427,33 @@ func postChair(c echo.Context) error {
 		popularity := rm.NextInt()
 		stock := rm.NextInt()
 		if err := rm.Err(); err != nil {
-			c.Logger().Errorf("failed to read record: %v", err)
+			fmt.Printf("failed to read record: %v", err)
 			return c.NoContent(http.StatusBadRequest)
 		}
-		_, err := tx.Exec("INSERT INTO chair(id, name, description, thumbnail, price, height, width, depth, color, features, kind, popularity, stock) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", id, name, description, thumbnail, price, height, width, depth, color, features, kind, popularity, stock)
-		if err != nil {
-			c.Logger().Errorf("failed to insert chair: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		placeholders[i] = "(?,?,?,?,?,?,?,?,?,?,?,?,?)"
+		params[13*i] = id
+		params[13*i+1] = name
+		params[13*i+2] = description
+		params[13*i+3] = thumbnail
+		params[13*i+4] = price
+		params[13*i+5] = height
+		params[13*i+6] = width
+		params[13*i+7] = depth
+		params[13*i+8] = color
+		params[13*i+9] = features
+		params[13*i+10] = kind
+		params[13*i+11] = popularity
+		params[13*i+12] = stock
 	}
+
+	_, err = tx.Exec("INSERT INTO chair(id, name, description, thumbnail, price, height, width, depth, color, features, kind, popularity, stock) VALUES"+strings.Join(placeholders, ","), params...)
+	if err != nil {
+		fmt.Printf("failed to insert chair: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
 	if err := tx.Commit(); err != nil {
-		c.Logger().Errorf("failed to commit tx: %v", err)
+		fmt.Printf("failed to commit tx: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	return c.NoContent(http.StatusCreated)
@@ -706,7 +725,10 @@ func postEstate(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
-	for _, row := range records {
+
+	placeholders := make([]string, len(records))
+	params := make([]interface{}, len(records)*12)
+	for i, row := range records {
 		rm := RecordMapper{Record: row}
 		id := rm.NextInt()
 		name := rm.NextString()
@@ -724,12 +746,26 @@ func postEstate(c echo.Context) error {
 			c.Logger().Errorf("failed to read record: %v", err)
 			return c.NoContent(http.StatusBadRequest)
 		}
-		_, err := tx.Exec("INSERT INTO estate(id, name, description, thumbnail, address, latitude, longitude, rent, door_height, door_width, features, popularity) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", id, name, description, thumbnail, address, latitude, longitude, rent, doorHeight, doorWidth, features, popularity)
-		if err != nil {
-			c.Logger().Errorf("failed to insert estate: %v", err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+		placeholders[i] = "(?,?,?,?,?,?,?,?,?,?,?,?)"
+		params[12*i] = id
+		params[12*i+1] = name
+		params[12*i+2] = description
+		params[12*i+3] = thumbnail
+		params[12*i+4] = address
+		params[12*i+5] = latitude
+		params[12*i+6] = longitude
+		params[12*i+7] = rent
+		params[12*i+8] = doorHeight
+		params[12*i+9] = doorWidth
+		params[12*i+10] = features
+		params[12*i+11] = popularity
 	}
+	_, err = tx.Exec("INSERT INTO estate(id, name, description, thumbnail, address, latitude, longitude, rent, door_height, door_width, features, popularity) VALUES"+strings.Join(placeholders, ","), params...)
+	if err != nil {
+		c.Logger().Errorf("failed to insert estate: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
 	if err := tx.Commit(); err != nil {
 		c.Logger().Errorf("failed to commit tx: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
