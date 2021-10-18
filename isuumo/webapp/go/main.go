@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -304,9 +305,26 @@ func main() {
 	db2.SetMaxOpenConns(10)
 	defer db2.Close()
 
-	// Start server
-	serverPort := fmt.Sprintf(":%v", getEnv("SERVER_PORT", "5000"))
-	e.Logger.Fatal(e.Start(serverPort))
+	// use unix domain socket
+	socket_file := "/var/run/app.sock"
+	os.Remove(socket_file)
+
+	l, err := net.Listen("unix", socket_file)
+	if err != nil {
+		e.Logger.Fatal(err)
+	}
+
+	err = os.Chmod(socket_file, 0777)
+	if err != nil {
+		e.Logger.Fatal(err)
+	}
+
+	e.Listener = l
+	e.Logger.Fatal(e.Start(""))
+
+	// // Start server
+	// serverPort := fmt.Sprintf(":%v", getEnv("SERVER_PORT", "5000"))
+	// e.Logger.Fatal(e.Start(serverPort))
 }
 
 func initialize(c echo.Context) error {
