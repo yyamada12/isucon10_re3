@@ -24,6 +24,7 @@ CREATE TABLE isuumo.estate
     INDEX idx_rent_id(rent, id),
     INDEX idx_door_height_rent(door_height, rent),
     INDEX idx_door_width_rent(door_width, rent),
+    INDEX idx_door_height_door_width_rent(door_height, door_width, rent),
     SPATIAL INDEX(g)
 );
 
