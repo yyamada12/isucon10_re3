@@ -34,6 +34,7 @@ var chairSearchCondition ChairSearchCondition
 var estateSearchCondition EstateSearchCondition
 
 var chairResponseMap = NewChairResponseMap()
+var estateResponseMap = NewEstateResponseMap()
 
 type ChairResponseMap struct {
 	M  map[string]*ChairSearchResponse
@@ -55,6 +56,28 @@ func (icm *ChairResponseMap) Get(key string) *ChairSearchResponse {
 func NewChairResponseMap() *ChairResponseMap {
 	m := map[string]*ChairSearchResponse{}
 	return &ChairResponseMap{M: m}
+}
+
+type EstateResponseMap struct {
+	M  map[string]*EstateSearchResponse
+	Mu sync.RWMutex
+}
+
+func (erm *EstateResponseMap) Add(key string, e *EstateSearchResponse) {
+	erm.Mu.Lock()
+	defer erm.Mu.Unlock()
+	erm.M[key] = e
+}
+
+func (erm *EstateResponseMap) Get(key string) *EstateSearchResponse {
+	erm.Mu.RLock()
+	defer erm.Mu.RUnlock()
+	return erm.M[key]
+}
+
+func NewEstateResponseMap() *EstateResponseMap {
+	m := map[string]*EstateSearchResponse{}
+	return &EstateResponseMap{M: m}
 }
 
 type InitializeResponse struct {
@@ -399,6 +422,10 @@ func initialize(c echo.Context) error {
 	chairResponseMap.Mu.Lock()
 	defer chairResponseMap.Mu.Unlock()
 	chairResponseMap.M = map[string]*ChairSearchResponse{}
+
+	estateResponseMap.Mu.Lock()
+	defer estateResponseMap.Mu.Unlock()
+	estateResponseMap.M = map[string]*EstateSearchResponse{}
 
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "go",
@@ -838,14 +865,26 @@ func postEstate(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	estateResponseMap.Mu.Lock()
+
 	if err := tx.Commit(); err != nil {
 		c.Logger().Errorf("failed to commit tx: %v", err)
+		estateResponseMap.Mu.Unlock()
 		return c.NoContent(http.StatusInternalServerError)
 	}
+
+	estateResponseMap.M = map[string]*EstateSearchResponse{}
+	estateResponseMap.Mu.Unlock()
+
 	return c.NoContent(http.StatusCreated)
 }
 
 func searchEstates(c echo.Context) error {
+	cached := estateResponseMap.Get(c.QueryString())
+	if cached != nil {
+		return c.JSON(http.StatusOK, *cached)
+	}
+
 	conditions := make([]string, 0)
 	params := make([]interface{}, 0)
 
@@ -948,6 +987,8 @@ func searchEstates(c echo.Context) error {
 	}
 
 	res.Estates = estates
+
+	estateResponseMap.Add(c.QueryString(), &res)
 
 	return c.JSON(http.StatusOK, res)
 }
