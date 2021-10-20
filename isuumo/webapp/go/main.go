@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	_ "net/http/pprof"
 
@@ -31,6 +32,30 @@ var mySQLConnectionData *MySQLConnectionEnv
 var mySQLConnectionData2 *MySQLConnectionEnv
 var chairSearchCondition ChairSearchCondition
 var estateSearchCondition EstateSearchCondition
+
+var chairResponseMap = NewChairResponseMap()
+
+type ChairResponseMap struct {
+	M  map[string]*ChairSearchResponse
+	Mu sync.RWMutex
+}
+
+func (crm *ChairResponseMap) Add(key string, c *ChairSearchResponse) {
+	crm.Mu.Lock()
+	defer crm.Mu.Unlock()
+	crm.M[key] = c
+}
+
+func (icm *ChairResponseMap) Get(key string) *ChairSearchResponse {
+	icm.Mu.RLock()
+	defer icm.Mu.RUnlock()
+	return icm.M[key]
+}
+
+func NewChairResponseMap() *ChairResponseMap {
+	m := map[string]*ChairSearchResponse{}
+	return &ChairResponseMap{M: m}
+}
 
 type InitializeResponse struct {
 	Language string `json:"language"`
@@ -371,6 +396,10 @@ func initialize(c echo.Context) error {
 		}
 	}
 
+	chairResponseMap.Mu.Lock()
+	defer chairResponseMap.Mu.Unlock()
+	chairResponseMap.M = map[string]*ChairSearchResponse{}
+
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "go",
 	})
@@ -470,14 +499,25 @@ func postChair(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	chairResponseMap.Mu.Lock()
+
 	if err := tx.Commit(); err != nil {
 		fmt.Printf("failed to commit tx: %v", err)
+		chairResponseMap.Mu.Unlock()
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	chairResponseMap.M = map[string]*ChairSearchResponse{}
+	chairResponseMap.Mu.Unlock()
 	return c.NoContent(http.StatusCreated)
 }
 
 func searchChairs(c echo.Context) error {
+
+	cached := chairResponseMap.Get(c.QueryString())
+	if cached != nil {
+		return c.JSON(http.StatusOK, *cached)
+	}
+
 	conditions := make([]string, 0)
 	params := make([]interface{}, 0)
 
@@ -610,6 +650,8 @@ func searchChairs(c echo.Context) error {
 
 	res.Chairs = chairs
 
+	chairResponseMap.Add(c.QueryString(), &res)
+
 	return c.JSON(http.StatusOK, res)
 }
 
@@ -656,10 +698,22 @@ func buyChair(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	if chair.Stock == 1 {
+		chairResponseMap.Mu.Lock()
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		c.Echo().Logger.Errorf("transaction commit error : %v", err)
+		if chair.Stock == 1 {
+			chairResponseMap.Mu.Unlock()
+		}
 		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	if chair.Stock == 1 {
+		chairResponseMap.M = map[string]*ChairSearchResponse{}
+		chairResponseMap.Mu.Unlock()
 	}
 
 	return c.NoContent(http.StatusOK)
