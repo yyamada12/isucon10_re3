@@ -36,6 +36,7 @@ var estateSearchCondition EstateSearchCondition
 var chairResponseMap = NewChairResponseMap()
 var estateResponseMap = NewEstateResponseMap()
 var chairListCache = new(ChairListCache)
+var estateListCache = new(EstateListCache)
 
 type ChairResponseMap struct {
 	M  map[string]*ChairSearchResponse
@@ -96,6 +97,23 @@ func (cc *ChairListCache) Get() *ChairListResponse {
 	cc.Mu.RLock()
 	defer cc.Mu.RUnlock()
 	return cc.Res
+}
+
+type EstateListCache struct {
+	Res *EstateListResponse
+	Mu  sync.RWMutex
+}
+
+func (ec *EstateListCache) Update(newValue *EstateListResponse) {
+	ec.Mu.Lock()
+	defer ec.Mu.Unlock()
+	ec.Res = newValue
+}
+
+func (ec *EstateListCache) Get() *EstateListResponse {
+	ec.Mu.RLock()
+	defer ec.Mu.RUnlock()
+	return ec.Res
 }
 
 type InitializeResponse struct {
@@ -446,6 +464,7 @@ func initialize(c echo.Context) error {
 	estateResponseMap.M = map[string]*EstateSearchResponse{}
 
 	chairListCache.Update(nil)
+	estateListCache.Update(nil)
 
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "go",
@@ -902,15 +921,19 @@ func postEstate(c echo.Context) error {
 	}
 
 	estateResponseMap.Mu.Lock()
+	estateListCache.Mu.Lock()
 
 	if err := tx.Commit(); err != nil {
 		c.Logger().Errorf("failed to commit tx: %v", err)
 		estateResponseMap.Mu.Unlock()
+		estateListCache.Mu.Unlock()
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	estateResponseMap.M = map[string]*EstateSearchResponse{}
 	estateResponseMap.Mu.Unlock()
+	estateListCache.Res = nil
+	estateListCache.Mu.Unlock()
 
 	return c.NoContent(http.StatusCreated)
 }
@@ -1030,6 +1053,11 @@ func searchEstates(c echo.Context) error {
 }
 
 func getLowPricedEstate(c echo.Context) error {
+	cached := estateListCache.Get()
+	if cached != nil {
+		return c.JSON(http.StatusOK, *cached)
+	}
+
 	estates := make([]Estate, 0, Limit)
 	query := `SELECT id,name,description,thumbnail,address,latitude,longitude,rent,door_height,door_width,features,popularity FROM estate ORDER BY rent ASC, id ASC LIMIT ?`
 	err := db2.Select(&estates, query, Limit)
@@ -1042,7 +1070,10 @@ func getLowPricedEstate(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	return c.JSON(http.StatusOK, EstateListResponse{Estates: estates})
+	res := EstateListResponse{Estates: estates}
+	estateListCache.Update(&res)
+
+	return c.JSON(http.StatusOK, res)
 }
 
 func searchRecommendedEstateWithChair(c echo.Context) error {
