@@ -38,6 +38,8 @@ var estateResponseMap = NewEstateResponseMap()
 var chairListCache = new(ChairListCache)
 var estateListCache = new(EstateListCache)
 
+var estateMap = NewEstateMap()
+
 type ChairResponseMap struct {
 	M  map[string]*ChairSearchResponse
 	Mu sync.RWMutex
@@ -114,6 +116,28 @@ func (ec *EstateListCache) Get() *EstateListResponse {
 	ec.Mu.RLock()
 	defer ec.Mu.RUnlock()
 	return ec.Res
+}
+
+type EstateMap struct {
+	m  map[int64]*Estate
+	mu sync.RWMutex
+}
+
+func (em *EstateMap) Add(e *Estate) {
+	em.mu.Lock()
+	defer em.mu.Unlock()
+	em.m[e.ID] = e
+}
+
+func (em *EstateMap) Get(id int64) *Estate {
+	em.mu.RLock()
+	defer em.mu.RUnlock()
+	return em.m[id]
+}
+
+func NewEstateMap() *EstateMap {
+	m := map[int64]*Estate{}
+	return &EstateMap{m: m}
 }
 
 type InitializeResponse struct {
@@ -465,6 +489,13 @@ func initialize(c echo.Context) error {
 
 	chairListCache.Update(nil)
 	estateListCache.Update(nil)
+
+	estateMap = NewEstateMap()
+	estates := []Estate{}
+	db2.Select(&estates, "SELECT id,name,description,thumbnail,address,latitude,longitude,rent,door_height,door_width,features,popularity FROM estates")
+	for _, e := range estates {
+		estateMap.Add(&e)
+	}
 
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "go",
@@ -828,6 +859,11 @@ func getEstateDetail(c echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
+	cached := estateMap.Get(int64(id))
+	if cached != nil {
+		return c.JSON(http.StatusOK, *cached)
+	}
+
 	var estate Estate
 	err = db2.Get(&estate, "SELECT id,name,description,thumbnail,address,latitude,longitude,rent,door_height,door_width,features,popularity FROM estate WHERE id = ?", id)
 	if err != nil {
@@ -838,6 +874,8 @@ func getEstateDetail(c echo.Context) error {
 		c.Echo().Logger.Errorf("Database Execution error : %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+
+	estateMap.Add(&estate)
 
 	return c.JSON(http.StatusOK, estate)
 }
@@ -1162,6 +1200,11 @@ func postEstateRequestDocument(c echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
+	cached := estateMap.Get(int64(id))
+	if cached != nil {
+		return c.NoContent(http.StatusOK)
+	}
+
 	estate := Estate{}
 	query := `SELECT id,name,description,thumbnail,address,latitude,longitude,rent,door_height,door_width,features,popularity FROM estate WHERE id = ?`
 	err = db2.Get(&estate, query, id)
@@ -1172,6 +1215,8 @@ func postEstateRequestDocument(c echo.Context) error {
 		c.Logger().Errorf("postEstateRequestDocument DB execution error : %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+
+	estateMap.Add(&estate)
 
 	return c.NoContent(http.StatusOK)
 }
