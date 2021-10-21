@@ -35,6 +35,7 @@ var estateSearchCondition EstateSearchCondition
 
 var chairResponseMap = NewChairResponseMap()
 var estateResponseMap = NewEstateResponseMap()
+var chairListCache = new(ChairListCache)
 
 type ChairResponseMap struct {
 	M  map[string]*ChairSearchResponse
@@ -78,6 +79,23 @@ func (erm *EstateResponseMap) Get(key string) *EstateSearchResponse {
 func NewEstateResponseMap() *EstateResponseMap {
 	m := map[string]*EstateSearchResponse{}
 	return &EstateResponseMap{M: m}
+}
+
+type ChairListCache struct {
+	Res *ChairListResponse
+	Mu  sync.RWMutex
+}
+
+func (cc *ChairListCache) Update(newValue *ChairListResponse) {
+	cc.Mu.Lock()
+	defer cc.Mu.Unlock()
+	cc.Res = newValue
+}
+
+func (cc *ChairListCache) Get() *ChairListResponse {
+	cc.Mu.RLock()
+	defer cc.Mu.RUnlock()
+	return cc.Res
 }
 
 type InitializeResponse struct {
@@ -427,6 +445,8 @@ func initialize(c echo.Context) error {
 	defer estateResponseMap.Mu.Unlock()
 	estateResponseMap.M = map[string]*EstateSearchResponse{}
 
+	chairListCache.Update(nil)
+
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "go",
 	})
@@ -527,14 +547,19 @@ func postChair(c echo.Context) error {
 	}
 
 	chairResponseMap.Mu.Lock()
+	chairListCache.Mu.Lock()
 
 	if err := tx.Commit(); err != nil {
 		fmt.Printf("failed to commit tx: %v", err)
 		chairResponseMap.Mu.Unlock()
+		chairListCache.Mu.Unlock()
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	chairResponseMap.M = map[string]*ChairSearchResponse{}
 	chairResponseMap.Mu.Unlock()
+	chairListCache.Res = nil
+	chairListCache.Mu.Unlock()
+
 	return c.NoContent(http.StatusCreated)
 }
 
@@ -727,6 +752,7 @@ func buyChair(c echo.Context) error {
 
 	if chair.Stock == 1 {
 		chairResponseMap.Mu.Lock()
+		chairListCache.Mu.Lock()
 	}
 
 	err = tx.Commit()
@@ -734,6 +760,7 @@ func buyChair(c echo.Context) error {
 		c.Echo().Logger.Errorf("transaction commit error : %v", err)
 		if chair.Stock == 1 {
 			chairResponseMap.Mu.Unlock()
+			chairListCache.Mu.Unlock()
 		}
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -741,6 +768,8 @@ func buyChair(c echo.Context) error {
 	if chair.Stock == 1 {
 		chairResponseMap.M = map[string]*ChairSearchResponse{}
 		chairResponseMap.Mu.Unlock()
+		chairListCache.Res = nil
+		chairListCache.Mu.Unlock()
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -751,6 +780,11 @@ func getChairSearchCondition(c echo.Context) error {
 }
 
 func getLowPricedChair(c echo.Context) error {
+	cached := chairListCache.Get()
+	if cached != nil {
+		return c.JSON(http.StatusOK, *cached)
+	}
+
 	var chairs []Chair
 	query := `SELECT id,name,description,thumbnail,price,height,width,depth,color,features,kind,popularity,stock FROM chair WHERE stock > 0 ORDER BY price ASC, id ASC LIMIT ?`
 	err := db.Select(&chairs, query, Limit)
@@ -762,8 +796,10 @@ func getLowPricedChair(c echo.Context) error {
 		c.Logger().Errorf("getLowPricedChair DB execution error : %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	res := ChairListResponse{Chairs: chairs}
+	chairListCache.Update(&res)
 
-	return c.JSON(http.StatusOK, ChairListResponse{Chairs: chairs})
+	return c.JSON(http.StatusOK, res)
 }
 
 func getEstateDetail(c echo.Context) error {
