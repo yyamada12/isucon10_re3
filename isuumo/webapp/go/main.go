@@ -41,78 +41,78 @@ var estateListCache = new(EstateListCache)
 var estateMap = NewEstateMap()
 
 type ChairResponseMap struct {
-	M  map[string]*ChairSearchResponse
+	M  map[string]*[]byte
 	Mu sync.RWMutex
 }
 
-func (crm *ChairResponseMap) Add(key string, c *ChairSearchResponse) {
+func (crm *ChairResponseMap) Add(key string, c *[]byte) {
 	crm.Mu.Lock()
 	defer crm.Mu.Unlock()
 	crm.M[key] = c
 }
 
-func (icm *ChairResponseMap) Get(key string) *ChairSearchResponse {
+func (icm *ChairResponseMap) Get(key string) *[]byte {
 	icm.Mu.RLock()
 	defer icm.Mu.RUnlock()
 	return icm.M[key]
 }
 
 func NewChairResponseMap() *ChairResponseMap {
-	m := map[string]*ChairSearchResponse{}
+	m := map[string]*[]byte{}
 	return &ChairResponseMap{M: m}
 }
 
 type EstateResponseMap struct {
-	M  map[string]*EstateSearchResponse
+	M  map[string]*[]byte
 	Mu sync.RWMutex
 }
 
-func (erm *EstateResponseMap) Add(key string, e *EstateSearchResponse) {
+func (erm *EstateResponseMap) Add(key string, e *[]byte) {
 	erm.Mu.Lock()
 	defer erm.Mu.Unlock()
 	erm.M[key] = e
 }
 
-func (erm *EstateResponseMap) Get(key string) *EstateSearchResponse {
+func (erm *EstateResponseMap) Get(key string) *[]byte {
 	erm.Mu.RLock()
 	defer erm.Mu.RUnlock()
 	return erm.M[key]
 }
 
 func NewEstateResponseMap() *EstateResponseMap {
-	m := map[string]*EstateSearchResponse{}
+	m := map[string]*[]byte{}
 	return &EstateResponseMap{M: m}
 }
 
 type ChairListCache struct {
-	Res *ChairListResponse
+	Res *[]byte
 	Mu  sync.RWMutex
 }
 
-func (cc *ChairListCache) Update(newValue *ChairListResponse) {
+func (cc *ChairListCache) Update(newValue *[]byte) {
 	cc.Mu.Lock()
 	defer cc.Mu.Unlock()
 	cc.Res = newValue
 }
 
-func (cc *ChairListCache) Get() *ChairListResponse {
+func (cc *ChairListCache) Get() *[]byte {
 	cc.Mu.RLock()
 	defer cc.Mu.RUnlock()
 	return cc.Res
 }
 
 type EstateListCache struct {
-	Res *EstateListResponse
+	Res *[]byte
 	Mu  sync.RWMutex
 }
 
-func (ec *EstateListCache) Update(newValue *EstateListResponse) {
+func (ec *EstateListCache) Update(newValue *[]byte) {
 	ec.Mu.Lock()
 	defer ec.Mu.Unlock()
 	ec.Res = newValue
 }
 
-func (ec *EstateListCache) Get() *EstateListResponse {
+func (ec *EstateListCache) Get() *[]byte {
 	ec.Mu.RLock()
 	defer ec.Mu.RUnlock()
 	return ec.Res
@@ -481,11 +481,11 @@ func initialize(c echo.Context) error {
 
 	chairResponseMap.Mu.Lock()
 	defer chairResponseMap.Mu.Unlock()
-	chairResponseMap.M = map[string]*ChairSearchResponse{}
+	chairResponseMap.M = map[string]*[]byte{}
 
 	estateResponseMap.Mu.Lock()
 	defer estateResponseMap.Mu.Unlock()
-	estateResponseMap.M = map[string]*EstateSearchResponse{}
+	estateResponseMap.M = map[string]*[]byte{}
 
 	chairListCache.Update(nil)
 	estateListCache.Update(nil)
@@ -605,7 +605,7 @@ func postChair(c echo.Context) error {
 		chairListCache.Mu.Unlock()
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	chairResponseMap.M = map[string]*ChairSearchResponse{}
+	chairResponseMap.M = map[string]*[]byte{}
 	chairResponseMap.Mu.Unlock()
 	chairListCache.Res = nil
 	chairListCache.Mu.Unlock()
@@ -617,7 +617,7 @@ func searchChairs(c echo.Context) error {
 
 	cached := chairResponseMap.Get(c.QueryString())
 	if cached != nil {
-		return c.JSON(http.StatusOK, *cached)
+		return c.Blob(http.StatusOK, echo.MIMEApplicationJSONCharsetUTF8, *cached)
 	}
 
 	conditions := make([]string, 0)
@@ -752,9 +752,10 @@ func searchChairs(c echo.Context) error {
 
 	res.Chairs = chairs
 
-	chairResponseMap.Add(c.QueryString(), &res)
+	resJson, _ := json.Marshal(res)
+	chairResponseMap.Add(c.QueryString(), &resJson)
 
-	return c.JSON(http.StatusOK, res)
+	return c.Blob(http.StatusOK, echo.MIMEApplicationJSONCharsetUTF8, resJson)
 }
 
 func buyChair(c echo.Context) error {
@@ -816,7 +817,7 @@ func buyChair(c echo.Context) error {
 	}
 
 	if chair.Stock == 1 {
-		chairResponseMap.M = map[string]*ChairSearchResponse{}
+		chairResponseMap.M = map[string]*[]byte{}
 		chairResponseMap.Mu.Unlock()
 		chairListCache.Res = nil
 		chairListCache.Mu.Unlock()
@@ -832,7 +833,7 @@ func getChairSearchCondition(c echo.Context) error {
 func getLowPricedChair(c echo.Context) error {
 	cached := chairListCache.Get()
 	if cached != nil {
-		return c.JSON(http.StatusOK, *cached)
+		return c.Blob(http.StatusOK, echo.MIMEApplicationJSONCharsetUTF8, *cached)
 	}
 
 	var chairs []Chair
@@ -847,9 +848,11 @@ func getLowPricedChair(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	res := ChairListResponse{Chairs: chairs}
-	chairListCache.Update(&res)
 
-	return c.JSON(http.StatusOK, res)
+	resJson, _ := json.Marshal(res)
+	chairListCache.Update(&resJson)
+
+	return c.Blob(http.StatusOK, echo.MIMEApplicationJSONCharsetUTF8, resJson)
 }
 
 func getEstateDetail(c echo.Context) error {
@@ -968,7 +971,7 @@ func postEstate(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	estateResponseMap.M = map[string]*EstateSearchResponse{}
+	estateResponseMap.M = map[string]*[]byte{}
 	estateResponseMap.Mu.Unlock()
 	estateListCache.Res = nil
 	estateListCache.Mu.Unlock()
@@ -979,7 +982,7 @@ func postEstate(c echo.Context) error {
 func searchEstates(c echo.Context) error {
 	cached := estateResponseMap.Get(c.QueryString())
 	if cached != nil {
-		return c.JSON(http.StatusOK, *cached)
+		return c.Blob(http.StatusOK, echo.MIMEApplicationJSONCharsetUTF8, *cached)
 	}
 
 	conditions := make([]string, 0)
@@ -1085,15 +1088,15 @@ func searchEstates(c echo.Context) error {
 
 	res.Estates = estates
 
-	estateResponseMap.Add(c.QueryString(), &res)
-
-	return c.JSON(http.StatusOK, res)
+	resJson, _ := json.Marshal(res)
+	estateResponseMap.Add(c.QueryString(), &resJson)
+	return c.Blob(http.StatusOK, echo.MIMEApplicationJSONCharsetUTF8, resJson)
 }
 
 func getLowPricedEstate(c echo.Context) error {
 	cached := estateListCache.Get()
 	if cached != nil {
-		return c.JSON(http.StatusOK, *cached)
+		return c.Blob(http.StatusOK, echo.MIMEApplicationJSONCharsetUTF8, *cached)
 	}
 
 	estates := make([]Estate, 0, Limit)
@@ -1109,9 +1112,11 @@ func getLowPricedEstate(c echo.Context) error {
 	}
 
 	res := EstateListResponse{Estates: estates}
-	estateListCache.Update(&res)
 
-	return c.JSON(http.StatusOK, res)
+	resJson, _ := json.Marshal(res)
+	estateListCache.Update(&resJson)
+
+	return c.Blob(http.StatusOK, echo.MIMEApplicationJSONCharsetUTF8, resJson)
 }
 
 func searchRecommendedEstateWithChair(c echo.Context) error {
